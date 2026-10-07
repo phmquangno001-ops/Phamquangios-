@@ -2,92 +2,48 @@
 <html lang="vi">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PHAMQUANGIOS Key Manager</title>
+<title>PHAMQUANGIOS KEY</title>
 <style>
-body{font-family:system-ui;margin:0;background:#111;color:#eee}main{max-width:900px;margin:auto;padding:20px}
-.card{background:#1b1b1b;border:1px solid #333;border-radius:14px;padding:16px;margin:12px 0}
-input,button{padding:11px;border-radius:9px;border:1px solid #444;background:#222;color:#fff;margin:4px;box-sizing:border-box}
-button{cursor:pointer}.msg{min-height:22px;color:#ffcc66}.ok{color:#7ee787}
-table{width:100%;border-collapse:collapse}td,th{padding:9px;border-bottom:1px solid #333;text-align:left}
-.small{color:#aaa;font-size:13px}.danger{color:#ff7777}
+body{font-family:system-ui;margin:0;background:#101114;color:#eee;display:grid;place-items:center;min-height:100vh}
+.card{width:min(92%,430px);background:#1b1d22;border:1px solid #333;border-radius:18px;padding:24px;box-sizing:border-box}
+h1{margin-top:0}input,button{width:100%;padding:13px;margin-top:10px;border-radius:10px;border:1px solid #444;background:#111;color:#fff;box-sizing:border-box}button{cursor:pointer;background:#2563eb;border:0}.msg{margin-top:14px;min-height:24px}.ok{color:#65d98b}.bad{color:#ff7272}.small{color:#999;font-size:13px}
 </style>
 </head>
-<body><main>
-<h1>PHAMQUANGIOS Key Manager</h1>
-<div class="card" id="login">
-<h3>Đăng nhập admin</h3>
-<input id="email" type="email" placeholder="Email" autocomplete="username">
-<input id="password" type="password" placeholder="Mật khẩu" autocomplete="current-password">
-<button id="loginBtn" type="button">Đăng nhập</button>
-<p id="loginMsg" class="msg"></p>
-<p class="small">Tài khoản phải có role = admin trong bảng profiles.</p>
-</div>
-<div class="card" id="panel" style="display:none">
-<button id="logoutBtn" type="button">Đăng xuất</button>
-<h3>Tạo key</h3>
-<input id="custom" placeholder="Để trống = tự tạo">
-<input id="days" type="number" value="30" min="1" placeholder="Số ngày">
-<button id="createBtn" type="button">Tạo key</button>
-<p id="panelMsg" class="msg"></p>
-<h3>Danh sách key</h3>
-<table><thead><tr><th>Key</th><th>Trạng thái</th><th>Hết hạn</th><th>Thao tác</th></tr></thead><tbody id="rows"></tbody></table>
+<body><div class="card">
+<h1>PHAMQUANGIOS</h1>
+<p>Nhập KEY để kiểm tra.</p>
+<input id="key" placeholder="Nhập key..." autocomplete="off">
+<button id="check" type="button">KIỂM TRA KEY</button>
+<div id="msg" class="msg"></div>
+<div id="info" class="small"></div>
 </div>
 <script>
-const SUPABASE_URL="https://oluwfxpqponqjbdptxve.supabase.co";
+const API="https://oluwfxpqponqjbdptxve.supabase.co/functions/v1/key-check";
 const SUPABASE_KEY="sb_publishable_667RSQDylhaS_ukr5S9aAg_FwXoPuRA";
-const ADMIN=SUPABASE_URL+"/functions/v1/key-admin";
-let token=localStorage.getItem("pq_token");
-
 const $=id=>document.getElementById(id);
-function showMsg(id,msg,ok=false){$(id).textContent=msg;$(id).className=ok?"msg ok":"msg"}
-
-async function req(url,opt={}){
-  opt.headers=Object.assign({"Content-Type":"application/json","apikey":SUPABASE_KEY},opt.headers||{});
-  if(token) opt.headers.Authorization="Bearer "+token;
-  const r=await fetch(url,opt);
-  const text=await r.text();
-  let j={}; try{j=text?JSON.parse(text):{}}catch{}
-  if(!r.ok) throw new Error(j.error||j.message||("HTTP "+r.status));
-  return j;
-}
-async function login(){
-  const em=$("email").value.trim(), pw=$("password").value;
-  if(!em||!pw){showMsg("loginMsg","Nhập email và mật khẩu.");return}
-  $("loginBtn").disabled=true; $("loginBtn").textContent="Đang đăng nhập...";
-  showMsg("loginMsg","Đang kiểm tra...");
+function msg(t,ok){$("msg").textContent=t;$("msg").className="msg "+(ok?"ok":"bad")}
+async function checkKey(){
+  const key=$("key").value.trim();
+  $("info").textContent="";
+  if(!key){msg("Vui lòng nhập KEY.",false);return}
+  $("check").disabled=true;$("check").textContent="ĐANG KIỂM TRA...";
   try{
-    const j=await req(SUPABASE_URL+"/auth/v1/token?grant_type=password",{
-      method:"POST",headers:{"Content-Type":"application/json","apikey":SUPABASE_KEY},
-      body:JSON.stringify({email:em,password:pw})
-    });
-    token=j.access_token;
-    localStorage.setItem("pq_token",token);
-    show();
-    await load();
-    showMsg("panelMsg","Đăng nhập thành công.",true);
-  }catch(e){showMsg("loginMsg","Lỗi: "+e.message)}
-  finally{$("loginBtn").disabled=false;$("loginBtn").textContent="Đăng nhập"}
+    const r=await fetch(API,{method:"POST",headers:{"Content-Type":"application/json","apikey":SUPABASE_KEY},body:JSON.stringify({key})});
+    const text=await r.text();let j={};try{j=JSON.parse(text)}catch{}
+    if(!r.ok) throw new Error(j.error||j.message||("HTTP "+r.status));
+    const valid=j.valid===true || j.status==="active" || j.ok===true;
+    if(valid){
+      msg("✓ KEY HỢP LỆ",true);
+      if(j.expires_at)$("info").textContent="Hết hạn: "+new Date(j.expires_at).toLocaleString();
+      else if(j.expiresAt)$("info").textContent="Hết hạn: "+new Date(j.expiresAt).toLocaleString();
+      else $("info").textContent="KEY đang hoạt động.";
+    }else{
+      msg("✕ KEY KHÔNG HỢP LỆ",false);
+      $("info").textContent=j.error||j.message||j.status||"Key không hoạt động hoặc đã hết hạn.";
+    }
+  }catch(e){msg("Lỗi kết nối: "+e.message,false)}
+  finally{$("check").disabled=false;$("check").textContent="KIỂM TRA KEY"}
 }
-async function load(){
-  try{
-    const j=await req(ADMIN);
-    $("rows").innerHTML=(j.keys||[]).map(k=>`<tr>
-<td>${esc(k.key_code)}</td><td>${esc(k.status)}</td><td>${k.expires_at?new Date(k.expires_at).toLocaleString():"Chưa đặt"}</td>
-<td><button type="button" onclick="toggleKey('${k.id}',${k.status==="active"})">${k.status==="active"?"Khóa":"Mở"}</button>
-<button type="button" onclick="delKey('${k.id}')" class="danger">Xóa</button></td></tr>`).join("");
-  }catch(e){showMsg("panelMsg","Lỗi tải key: "+e.message)}
-}
-async function createKey(){
-  try{await req(ADMIN+"/create",{method:"POST",body:JSON.stringify({key:$("custom").value.trim()||undefined,days:Number($("days").value||30)})});$("custom").value="";showMsg("panelMsg","Đã tạo key.",true);load()}catch(e){showMsg("panelMsg","Lỗi: "+e.message)}
-}
-async function toggleKey(id,active){try{await req(ADMIN+"/"+id,{method:"PATCH",body:JSON.stringify({active:!active})});load()}catch(e){showMsg("panelMsg","Lỗi: "+e.message)}}
-async function delKey(id){if(confirm("Xóa key này?"))try{await req(ADMIN+"/"+id,{method:"DELETE"});load()}catch(e){showMsg("panelMsg","Lỗi: "+e.message)}}
-function logout(){localStorage.removeItem("pq_token");token=null;show();showMsg("loginMsg","Đã đăng xuất.",true)}
-function show(){$("login").style.display=token?"none":"block";$("panel").style.display=token?"block":"none"}
-function esc(s){return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]))}
-$("loginBtn").addEventListener("click",login);
-$("password").addEventListener("keydown",e=>{if(e.key==="Enter")login()});
-$("logoutBtn").addEventListener("click",logout);
-$("createBtn").addEventListener("click",createKey);
-show();if(token)load();
-</script></main></body></html>
+$("check").addEventListener("click",checkKey);
+$("key").addEventListener("keydown",e=>{if(e.key==="Enter")checkKey()});
+</script></body></html>
