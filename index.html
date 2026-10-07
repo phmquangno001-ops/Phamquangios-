@@ -1,14 +1,14 @@
 <!doctype html>
 <html lang="vi">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>PHAMQUANGIOS Key Manager</title>
 <style>
 body{font-family:system-ui;margin:0;background:#111;color:#eee}main{max-width:900px;margin:auto;padding:20px}
 .card{background:#1b1b1b;border:1px solid #333;border-radius:14px;padding:16px;margin:12px 0}
-input,button{padding:11px;border-radius:9px;border:1px solid #444;background:#222;color:#fff;margin:4px}
-button{cursor:pointer}table{width:100%;border-collapse:collapse}td,th{padding:9px;border-bottom:1px solid #333;text-align:left}
+input,button{padding:11px;border-radius:9px;border:1px solid #444;background:#222;color:#fff;margin:4px;box-sizing:border-box}
+button{cursor:pointer}.msg{min-height:22px;color:#ffcc66}.ok{color:#7ee787}
+table{width:100%;border-collapse:collapse}td,th{padding:9px;border-bottom:1px solid #333;text-align:left}
 .small{color:#aaa;font-size:13px}.danger{color:#ff7777}
 </style>
 </head>
@@ -16,17 +16,19 @@ button{cursor:pointer}table{width:100%;border-collapse:collapse}td,th{padding:9p
 <h1>PHAMQUANGIOS Key Manager</h1>
 <div class="card" id="login">
 <h3>Đăng nhập admin</h3>
-<input id="email" type="email" placeholder="Email">
-<input id="password" type="password" placeholder="Mật khẩu">
-<button onclick="login()">Đăng nhập</button>
+<input id="email" type="email" placeholder="Email" autocomplete="username">
+<input id="password" type="password" placeholder="Mật khẩu" autocomplete="current-password">
+<button id="loginBtn" type="button">Đăng nhập</button>
+<p id="loginMsg" class="msg"></p>
 <p class="small">Tài khoản phải có role = admin trong bảng profiles.</p>
 </div>
 <div class="card" id="panel" style="display:none">
-<button onclick="logout()">Đăng xuất</button>
+<button id="logoutBtn" type="button">Đăng xuất</button>
 <h3>Tạo key</h3>
 <input id="custom" placeholder="Để trống = tự tạo">
 <input id="days" type="number" value="30" min="1" placeholder="Số ngày">
-<button onclick="createKey()">Tạo key</button>
+<button id="createBtn" type="button">Tạo key</button>
+<p id="panelMsg" class="msg"></p>
 <h3>Danh sách key</h3>
 <table><thead><tr><th>Key</th><th>Trạng thái</th><th>Hết hạn</th><th>Thao tác</th></tr></thead><tbody id="rows"></tbody></table>
 </div>
@@ -36,28 +38,56 @@ const SUPABASE_KEY="sb_publishable_667RSQDylhaS_ukr5S9aAg_FwXoPuRA";
 const ADMIN=SUPABASE_URL+"/functions/v1/key-admin";
 let token=localStorage.getItem("pq_token");
 
+const $=id=>document.getElementById(id);
+function showMsg(id,msg,ok=false){$(id).textContent=msg;$(id).className=ok?"msg ok":"msg"}
+
 async function req(url,opt={}){
-  opt.headers=Object.assign({"Content-Type":"application/json"},opt.headers||{},{Authorization:"Bearer "+token,apikey:SUPABASE_KEY});
-  const r=await fetch(url,opt); const j=await r.json(); if(!r.ok) throw new Error(j.error||"Request failed"); return j;
+  opt.headers=Object.assign({"Content-Type":"application/json","apikey":SUPABASE_KEY},opt.headers||{});
+  if(token) opt.headers.Authorization="Bearer "+token;
+  const r=await fetch(url,opt);
+  const text=await r.text();
+  let j={}; try{j=text?JSON.parse(text):{}}catch{}
+  if(!r.ok) throw new Error(j.error||j.message||("HTTP "+r.status));
+  return j;
 }
 async function login(){
-  const r=await fetch(SUPABASE_URL+"/auth/v1/token?grant_type=password",{method:"POST",headers:{"Content-Type":"application/json","apikey":SUPABASE_KEY},body:JSON.stringify({email:email.value,password:password.value})});
-  const j=await r.json(); if(!r.ok) return alert(j.error_description||"Đăng nhập thất bại");
-  token=j.access_token; localStorage.setItem("pq_token",token); show(); load();
+  const em=$("email").value.trim(), pw=$("password").value;
+  if(!em||!pw){showMsg("loginMsg","Nhập email và mật khẩu.");return}
+  $("loginBtn").disabled=true; $("loginBtn").textContent="Đang đăng nhập...";
+  showMsg("loginMsg","Đang kiểm tra...");
+  try{
+    const j=await req(SUPABASE_URL+"/auth/v1/token?grant_type=password",{
+      method:"POST",headers:{"Content-Type":"application/json","apikey":SUPABASE_KEY},
+      body:JSON.stringify({email:em,password:pw})
+    });
+    token=j.access_token;
+    localStorage.setItem("pq_token",token);
+    show();
+    await load();
+    showMsg("panelMsg","Đăng nhập thành công.",true);
+  }catch(e){showMsg("loginMsg","Lỗi: "+e.message)}
+  finally{$("loginBtn").disabled=false;$("loginBtn").textContent="Đăng nhập"}
 }
 async function load(){
-  try{const j=await req(ADMIN); rows.innerHTML=j.keys.map(k=>`<tr>
+  try{
+    const j=await req(ADMIN);
+    $("rows").innerHTML=(j.keys||[]).map(k=>`<tr>
 <td>${esc(k.key_code)}</td><td>${esc(k.status)}</td><td>${k.expires_at?new Date(k.expires_at).toLocaleString():"Chưa đặt"}</td>
-<td><button onclick="toggle('${k.id}',${k.status==="active"})">${k.status==="active"?"Khóa":"Mở"}</button>
-<button onclick="del('${k.id}')" class="danger">Xóa</button></td></tr>`).join("")}catch(e){alert(e.message)}
+<td><button type="button" onclick="toggleKey('${k.id}',${k.status==="active"})">${k.status==="active"?"Khóa":"Mở"}</button>
+<button type="button" onclick="delKey('${k.id}')" class="danger">Xóa</button></td></tr>`).join("");
+  }catch(e){showMsg("panelMsg","Lỗi tải key: "+e.message)}
 }
 async function createKey(){
-  try{await req(ADMIN+"/create",{method:"POST",body:JSON.stringify({key:custom.value||undefined,days:Number(days.value||30)})});custom.value="";load()}catch(e){alert(e.message)}
+  try{await req(ADMIN+"/create",{method:"POST",body:JSON.stringify({key:$("custom").value.trim()||undefined,days:Number($("days").value||30)})});$("custom").value="";showMsg("panelMsg","Đã tạo key.",true);load()}catch(e){showMsg("panelMsg","Lỗi: "+e.message)}
 }
-async function toggle(id,active){await req(ADMIN+"/"+id,{method:"PATCH",body:JSON.stringify({active:!active})});load()}
-async function del(id){if(confirm("Xóa key này?")){await req(ADMIN+"/"+id,{method:"DELETE"});load()}}
-function logout(){localStorage.removeItem("pq_token");token=null;show()}
-function show(){login.style.display=token?"none":"block";panel.style.display=token?"block":"none"}
+async function toggleKey(id,active){try{await req(ADMIN+"/"+id,{method:"PATCH",body:JSON.stringify({active:!active})});load()}catch(e){showMsg("panelMsg","Lỗi: "+e.message)}}
+async function delKey(id){if(confirm("Xóa key này?"))try{await req(ADMIN+"/"+id,{method:"DELETE"});load()}catch(e){showMsg("panelMsg","Lỗi: "+e.message)}}
+function logout(){localStorage.removeItem("pq_token");token=null;show();showMsg("loginMsg","Đã đăng xuất.",true)}
+function show(){$("login").style.display=token?"none":"block";$("panel").style.display=token?"block":"none"}
 function esc(s){return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]))}
-show(); if(token)load();
+$("loginBtn").addEventListener("click",login);
+$("password").addEventListener("keydown",e=>{if(e.key==="Enter")login()});
+$("logoutBtn").addEventListener("click",logout);
+$("createBtn").addEventListener("click",createKey);
+show();if(token)load();
 </script></main></body></html>
